@@ -1,0 +1,755 @@
+alertmanager:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 3200Mi
+    requests:
+      cpu: 100m
+      memory: 320Mi
+
+  useClusterRole: true
+
+  useExistingRole: false
+
+  name: alertmanager
+  image:
+    pullPolicy: IfNotPresent
+    repository: quay.io/prometheus/alertmanager
+    tag: v0.21.0
+
+  priorityClassName: ""
+
+  extraArgs: {}
+
+  extraInitContainers: []
+
+  prefixURL: "/alertmanager"
+
+  baseURL: "http://localhost:9093/alertmanager"
+
+  extraEnv: {}
+
+  extraSecretMounts: []
+
+  configMapOverrideName: ""
+
+  configFromSecret: ""
+
+  configFileName: alertmanager.yml
+
+  ingress:
+    enabled: false
+    annotations: {}
+    extraLabels: {}
+    hosts: []
+    extraPaths: []
+    tls: []
+
+  tolerations: []
+
+  nodeSelector: {}
+
+  affinity: {}
+
+  podDisruptionBudget:
+    enabled: false
+    maxUnavailable: 1
+
+  persistentVolume:
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    annotations: {}
+    existingClaim: ""
+    mountPath: /data
+    size: 100Gi
+    subPath: ""
+    storageClass: "gp2"
+
+  emptyDir:
+    sizeLimit: ""
+
+  resources:
+     limits:
+       cpu: 2000m
+       memory: 6200Mi
+     requests:
+       cpu: 100m
+       memory: 320Mi
+
+  securityContext:
+    runAsUser: 65534
+    runAsNonRoot: true
+    runAsGroup: 65534
+    fsGroup: 65534
+
+  service:
+    annotations: {}
+    labels: {}
+    clusterIP: ""
+    externalIPs: []
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+    servicePort: 80
+    sessionAffinity: None
+    type: ClusterIP
+
+
+configmapReload:
+  prometheus:
+    enabled: false
+
+  alertmanager:
+    enabled: false
+
+kubeStateMetrics:
+  enabled: true
+
+server:
+  enabled: true
+  prefixURL: "/prometheus"
+  baseURL: "http://localhost:9090/prometheus"
+  configPath: /etc/config/prometheus.yml
+
+  global:
+    scrape_interval: 1m
+    scrape_timeout: 10s
+    evaluation_interval: 1m
+
+  replicaCount: 1
+
+  resources:
+     limits:
+       cpu: "2.0"
+       memory: 10240Mi
+     requests:
+       cpu: 500m
+       memory: 512Mi
+
+  verticalAutoscaler:
+    enabled: false
+
+  securityContext:
+    runAsUser: 65534
+    runAsNonRoot: true
+    runAsGroup: 65534
+    fsGroup: 65534
+
+  service:
+    annotations: {}
+    labels: {}
+    clusterIP: ""
+    externalIPs: []
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+    servicePort: 80
+    sessionAffinity: None
+    type: ClusterIP
+
+    gRPC:
+      enabled: false
+      servicePort: 10901
+
+    statefulsetReplica:
+      enabled: false
+      replica: 1
+
+  persistentVolume:
+    enabled: true
+    accessModes:
+      - ReadWriteOnce
+    annotations: {}
+    existingClaim: ""
+    mountPath: /data
+    size: 200Gi
+    storageClass: "gp2"
+
+  terminationGracePeriodSeconds: 300
+  retention: "15d"
+
+pushgateway:
+  enabled: false
+
+
+alertmanagerFiles:
+  alertmanager.yml:
+    global:
+      resolve_timeout: 1m
+    route:
+      group_by: ['alertname']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 10m
+      receiver: 'devops'
+      routes:
+      - receiver: 'xxxxxx'
+        group_wait: 10s
+        match_re:
+          namespace: 'prometheus'
+      - receiver: 'xxxxx'
+        match_re:
+          namespace: 'default'
+    receivers:
+      - name: 'devops'
+        webhook_configs:
+          - url: 'http://xxxxxxxxx'
+      - name: 'project'
+        webhook_configs:
+          - url: 'http://xxxxxxxxxxx'
+
+serverFiles:
+  alerting_rules.yml:
+   groups:
+      - name: Prometheus
+        rules:
+          - alert: PrometheusJobMissing
+            expr: absent(up{job="prometheus"})
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "Prometheus job missing (instance {{ $labels.instance }})"
+              description: "A Prometheus job has disappeared\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusAllTargetsMissing
+            expr: count by (job) (up) == 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus all targets missing (instance {{ $labels.instance }})"
+              description: "project_A Prometheus job does not have living target anymore.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusConfigurationReloadFailure
+            expr: prometheus_config_last_reload_successful != 1
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "project_Prometheus configuration reload failure (instance {{ $labels.instance }})"
+              description: "project_Prometheus configuration reload error\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTooManyRestarts
+            expr: changes(process_start_time_seconds{job=~"prometheus|pushgateway|alertmanager"}[15m]) > 2
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "project_Prometheus too many restarts (instance {{ $labels.instance }})"
+              description: "project_Prometheus has restarted more than twice in the last 15 minutes. It might be crashlooping.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusAlertmanagerConfigurationReloadFailure
+            expr: alertmanager_config_last_reload_successful != 1
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "project_Prometheus AlertManager configuration reload failure (instance {{ $labels.instance }})"
+              description: "project_AlertManager configuration reload error\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusNotConnectedToAlertmanager
+            expr: prometheus_notifications_alertmanagers_discovered < 1
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus not connected to alertmanager (instance {{ $labels.instance }})"
+              description: "project_Prometheus cannot connect the alertmanager\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusRuleEvaluationFailures
+            expr: increase(prometheus_rule_evaluation_failures_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus rule evaluation failures (instance {{ $labels.instance }})"
+              description: "project_Prometheus encountered {{ $value }} rule evaluation failures, leading to potentially ignored alerts.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTemplateTextExpansionFailures
+            expr: increase(prometheus_template_text_expansion_failures_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus template text expansion failures (instance {{ $labels.instance }})"
+              description: "project_Prometheus encountered {{ $value }} template text expansion failures\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusRuleEvaluationSlow
+            expr: prometheus_rule_group_last_duration_seconds > prometheus_rule_group_interval_seconds
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "project_Prometheus rule evaluation slow (instance {{ $labels.instance }})"
+              description: "project_Prometheus rule evaluation took more time than the scheduled interval. I indicates a slower storage backend access or too complex query.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusNotificationsBacklog
+            expr: min_over_time(prometheus_notifications_queue_length[10m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "project_Prometheus notifications backlog (instance {{ $labels.instance }})"
+              description: "project_The Prometheus notification queue has not been empty for 10 minutes\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusAlertmanagerNotificationFailing
+            expr: rate(alertmanager_notifications_failed_total[1m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus AlertManager notification failing (instance {{ $labels.instance }})"
+              description: "project_Alertmanager is failing sending notifications\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTargetEmpty
+            expr: prometheus_sd_discovered_targets == 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus target empty (instance {{ $labels.instance }})"
+              description: "project_Prometheus has no target in service discovery\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusLargeScrape
+            expr: increase(prometheus_target_scrapes_exceeded_sample_limit_total[10m]) > 10
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "project_Prometheus large scrape (instance {{ $labels.instance }})"
+              description: "project_Prometheus has many scrapes that exceed the sample limit\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTargetScrapeDuplicate
+            expr: increase(prometheus_target_scrapes_sample_duplicate_timestamp_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: sre
+            annotations:
+              summary: "project_Prometheus target scrape duplicate (instance {{ $labels.instance }})"
+              description: "project_Prometheus has many samples rejected due to duplicate timestamps but different values\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTsdbCheckpointCreationFailures
+            expr: increase(prometheus_tsdb_checkpoint_creations_failed_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus TSDB checkpoint creation failures (instance {{ $labels.instance }})"
+              description: "project_Prometheus encountered {{ $value }} checkpoint creation failures\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTsdbCheckpointDeletionFailures
+            expr: increase(prometheus_tsdb_checkpoint_deletions_failed_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus TSDB checkpoint deletion failures (instance {{ $labels.instance }})"
+              description: "project_Prometheus encountered {{ $value }} checkpoint deletion failures\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTsdbCompactionsFailed
+            expr: increase(prometheus_tsdb_compactions_failed_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus TSDB compactions failed (instance {{ $labels.instance }})"
+              description: "project_Prometheus encountered {{ $value }} TSDB compactions failures\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTsdbHeadTruncationsFailed
+            expr: increase(prometheus_tsdb_head_truncations_failed_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus TSDB head truncations failed (instance {{ $labels.instance }})"
+              description: "project_Prometheus encountered {{ $value }} TSDB head truncation failures\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTsdbReloadFailures
+            expr: increase(prometheus_tsdb_reloads_failures_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus TSDB reload failures (instance {{ $labels.instance }})"
+              description: "Prometheus encountered {{ $value }} TSDB reload failures\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTsdbWalCorruptions
+            expr: increase(prometheus_tsdb_wal_corruptions_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus TSDB WAL corruptions (instance {{ $labels.instance }})"
+              description: "Prometheus encountered {{ $value }} TSDB WAL corruptions\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+          - alert: PrometheusTsdbWalTruncationsFailed
+            expr: increase(prometheus_tsdb_wal_truncations_failed_total[3m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              owner: sre
+            annotations:
+              summary: "project_Prometheus TSDB WAL truncations failed (instance {{ $labels.instance }})"
+              description: "Prometheus encountered {{ $value }} TSDB WAL truncation failures\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+
+      - name: gpu
+        rules:
+          - alert: GpuOutOfMemory
+            expr: dcgm_fb_free / ( dcgm_fb_free  +  dcgm_fb_used ) *100 < 10
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: "project_Gpu out of memory (instance {{ $labels.instance }})"
+              description: "GPU内存剩余不足10% \n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: Gpu_utilization_High
+            expr: gpu_utilization > 80
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: "project_Gpu out of memory (instance {{ $labels.instance }})"
+              description: "GPU使用率大于80% \n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"        
+
+
+      - name: node
+        rules:
+          - alert: HostOutOfMemory
+            expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100 < 10
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: "project_Host out of memory (instance {{ $labels.instance }})"
+              description: "内存剩余不足10% \n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostUnusualDiskReadRate
+            expr: sum by (instance) (rate(node_disk_read_bytes_total[2m])) / 1024 / 1024 > 50
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host unusual disk read rate (instance {{ $labels.instance }})"
+              description: "磁盘写入速率过高 (> 50 MB/s)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostUnusualDiskWriteRate
+            expr: sum by (instance) (rate(node_disk_written_bytes_total[2m])) / 1024 / 1024 > 50
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: "project_Host unusual disk write rate (instance {{ $labels.instance }})"
+              description: "project_磁盘读取速率过高 (> 50 MB/s)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostOutOfDiskSpace
+            expr: (node_filesystem_avail_bytes * 100) / node_filesystem_size_bytes < 10
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: "project_Host out of disk space (instance {{ $labels.instance }})"
+              description: "project_磁盘使用率大于90% (< 10% left)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostDiskWillFillIn4Hours
+            expr: predict_linear(node_filesystem_free_bytes{fstype!~"tmpfs"}[1h], 4 * 3600) < 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host disk will fill in 4 hours (instance {{ $labels.instance }})
+              description: "project_在当前写入速度下，磁盘4个小时内将写满\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostOutOfInodes
+            expr: node_filesystem_files_free{mountpoint ="/rootfs"} / node_filesystem_files{mountpoint ="/rootfs"} * 100 < 10
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host out of inodes (instance {{ $labels.instance }})
+              description: "project_Node 磁盘inode 数量使用量大于 90%， 剩余小于 (< 10% left)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostUnusualDiskReadLatency
+            expr: rate(node_disk_read_time_seconds_total[1m]) / rate(node_disk_reads_completed_total[1m]) > 0.1 and rate(node_disk_reads_completed_total[1m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host unusual disk read latency (instance {{ $labels.instance }})
+              description: "project_磁盘读取延迟过高 (read operations > 100ms)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostUnusualDiskWriteLatency
+            expr: rate(node_disk_write_time_seconds_total[1m]) / rate(node_disk_writes_completed_total[1m]) > 0.1 and rate(node_disk_writes_completed_total[1m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host unusual disk write latency (instance {{ $labels.instance }})
+              description: "project_磁盘写入延迟过高 (write operations > 100ms)\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostHighCpuLoad
+            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host high CPU load (instance {{ $labels.instance }})
+              description: "project_CPU使用率大于90%\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostSystemdServiceCrashed
+            expr: node_systemd_unit_state{state="failed"} == 1
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host SystemD service crashed (instance {{ $labels.instance }})
+              description: "project_主机服务crashed\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostOomKillDetected
+            expr: increase(node_vmstat_oom_kill[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host OOM kill detected (instance {{ $labels.instance }})
+              description: "project_发生了 OOM 事件\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+
+          - alert: HostNetworkReceiveErrors
+            expr: increase(node_network_receive_errs_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host Network Receive Errors (instance {{ $labels.instance }})
+              description: "project_网络接收错误{{ $labels.instance }} interface {{ $labels.device }} has encountered {{ printf \"%.0f\" $value }} receive errors in the last five minutes.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+          - alert: HostNetworkTransmitErrors
+            expr: increase(node_network_transmit_errs_total[5m]) > 0
+            for: 5m
+            labels:
+              severity: warning
+              owner: project
+            annotations:
+              summary: project_Host Network Transmit Errors (instance {{ $labels.instance }})
+              description: "project_网络传输错误\n {{ $labels.instance }} interface {{ $labels.device }} has encountered {{ printf \"%.0f\" $value }} transmit errors in the last five minutes.\n  VALUE = {{ $value }}\n  LABELS: {{ $labels }}"
+
+  recording_rules.yml: {}
+  rules: {}
+  prometheus.yml:
+    rule_files:
+      - /etc/config/recording_rules.yml
+      - /etc/config/alerting_rules.yml
+      - /etc/config/rules
+      - /etc/config/alerts
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets:
+            - localhost:9090
+        metrics_path: '/prometheus/metrics/'
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+          - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+      - job_name: 'kubernetes-nodes'
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics
+      - job_name: 'kubernetes-nodes-cadvisor'
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+      - job_name: 'kubernetes-service-endpoints'
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: kubernetes_name
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: kubernetes_node
+      - job_name: 'kubernetes-service-endpoints-slow'
+        scrape_interval: 5m
+        scrape_timeout: 30s
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape_slow]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+            action: replace
+            target_label: __scheme__
+            regex: (https?)
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+            action: replace
+            target_label: __address__
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: kubernetes_name
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: kubernetes_node
+      - job_name: 'kubernetes-services'
+        metrics_path: /probe
+        params:
+          module: [http_2xx]
+        kubernetes_sd_configs:
+          - role: service
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_probe]
+            action: keep
+            regex: true
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: __address__
+            replacement: blackbox
+          - source_labels: [__param_target]
+            target_label: instance
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            target_label: kubernetes_name
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Pending|Succeeded|Failed
+            action: drop
+      - job_name: 'kubernetes-pods-slow'
+        scrape_interval: 5m
+        scrape_timeout: 30s
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape_slow]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Pending|Succeeded|Failed
+            action: drop
